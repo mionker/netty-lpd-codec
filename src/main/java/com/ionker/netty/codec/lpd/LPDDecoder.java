@@ -4,6 +4,7 @@ import static com.ionker.netty.codec.lpd.receiveJob.LPDReceiveJobConstants.RECEI
 import static com.ionker.netty.codec.lpd.receiveJob.LPDReceiveJobConstants.RECEIVE_JOB_SUB_COMMAND_CODE_ABORT_JOB;
 import static com.ionker.netty.codec.lpd.receiveJob.LPDReceiveJobConstants.RECEIVE_JOB_SUB_COMMAND_CODE_RECEIVE_DATA_FILE;
 
+import com.ionker.netty.codec.lpd.receiveJob.DefaultLPDReceiveJobAbortJobSubCommand;
 import com.ionker.netty.codec.lpd.receiveJob.DefaultLPDReceiveJobControlFile;
 import com.ionker.netty.codec.lpd.receiveJob.DefaultLPDReceiveJobControlFileSubCommand;
 import com.ionker.netty.codec.lpd.receiveJob.DefaultLPDReceiveJobDataFileContent;
@@ -188,10 +189,6 @@ public class LPDDecoder extends ByteToMessageDecoder {
             state = State.DECODE_RECEIVE_JOB_RECEIVE_CONTROL_FILE;
             break;
 
-        case RECEIVE_JOB_SUB_COMMAND_CODE_ABORT_JOB:
-
-            break;
-
         case RECEIVE_JOB_SUB_COMMAND_CODE_RECEIVE_DATA_FILE:
             final String dataFileOperands = lineBytes.readSlice(lineBytes.readableBytes())
                     .toString(CharsetUtil.US_ASCII);
@@ -200,6 +197,10 @@ public class LPDDecoder extends ByteToMessageDecoder {
             out.add(dataFile);
             receiveJobDataFileLength = dataFile.getSize();
             state = State.DECODE_RECEIVE_JOB_RECEIVE_DATA_FILE;
+            break;
+
+        case RECEIVE_JOB_SUB_COMMAND_CODE_ABORT_JOB:
+            out.add(new DefaultLPDReceiveJobAbortJobSubCommand(queue));
             break;
 
         default:

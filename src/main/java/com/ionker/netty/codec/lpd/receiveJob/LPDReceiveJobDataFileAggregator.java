@@ -5,7 +5,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.MessageAggregator;
 
-public class LPDReceiveJobDataFileAggregator extends MessageAggregator<LPDReceiveJobDataFileObject, LPDReceiveJobDataFileSubCommand, LPDReceiveJobDataFileContent, LPDReceiveJobFullMessage> {
+public class LPDReceiveJobDataFileAggregator extends MessageAggregator<LPDReceiveJobDataFileObject, LPDReceiveJobDataFileSubCommand, LPDReceiveJobDataFileContent, LPDReceiveJobDataFile> {
 
     public LPDReceiveJobDataFileAggregator(int maxContentLength) {
         super(maxContentLength);
@@ -28,7 +28,7 @@ public class LPDReceiveJobDataFileAggregator extends MessageAggregator<LPDReceiv
 
     @Override
     protected boolean isAggregated(LPDReceiveJobDataFileObject msg) throws Exception {
-        return msg instanceof LPDReceiveJobFullMessage;
+        return msg instanceof LPDReceiveJobDataFile;
     }
 
     @Override
@@ -58,13 +58,13 @@ public class LPDReceiveJobDataFileAggregator extends MessageAggregator<LPDReceiv
     }
 
     @Override
-    protected LPDReceiveJobFullMessage beginAggregation(LPDReceiveJobDataFileSubCommand start, ByteBuf content)
+    protected LPDReceiveJobDataFile beginAggregation(LPDReceiveJobDataFileSubCommand start, ByteBuf content)
             throws Exception {
-        return new DefaultLPDReceiveJobFullMessage(start.getQueue(), start.getSize(), start.getName(), content);
+        return new DefaultLPDReceiveJobDataFile(start.getQueue(), start.getSize(), start.getName(), content);
     }
 
     @Override
-    protected void aggregate(LPDReceiveJobFullMessage aggregated, LPDReceiveJobDataFileContent content) throws Exception {
+    protected void aggregate(LPDReceiveJobDataFile aggregated, LPDReceiveJobDataFileContent content) throws Exception {
         if (content instanceof LPDReceiveJobDataFileLastContent) {
             // ((LPDReceiveJobFullMessage) aggregated).setTrailingHeaders(((LPDReceiveJobDataFileContent) content).trailingHeaders());
         }
