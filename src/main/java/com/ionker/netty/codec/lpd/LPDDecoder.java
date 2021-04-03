@@ -123,12 +123,12 @@ public class LPDDecoder extends ByteToMessageDecoder {
 
         case LPDConstants.COMMAND_CODE_REPORT_QUEUE_STATE_SHORT:
             logger.debug("Report queue state short for queue: {}", commandOperands);
-            command = DefaultLPDSendQueueStateShortSubCommand.fromCommandOperands(commandOperands);
+            command = DefaultLPDSendQueueStateShortCommand.fromCommandOperands(commandOperands);
             break;
 
         case LPDConstants.COMMAND_CODE_REPORT_QUEUE_STATE_LONG:
             logger.debug("Report queue state short for queue: {}", commandOperands);
-            command = DefaultLPDSendQueueStateLongSubCommand.fromCommandOperands(commandOperands);
+            command = DefaultLPDSendQueueStateLongCommand.fromCommandOperands(commandOperands);
             break;
 
         case LPDConstants.COMMAND_CODE_REMOVE_PRINT_JOBS:
