@@ -1,10 +1,10 @@
 package com.ionker.netty.codec.lpd;
 
-public class LPDRemoveJobsCommand extends LPDCommand {
+public class DefaultLPDRemoveJobsCommand extends AbstractLPDCommand {
 
     private String agent;
 
-    public LPDRemoveJobsCommand(String queue) {
+    public DefaultLPDRemoveJobsCommand(String queue) {
         super(queue);
     }
 

@@ -40,6 +40,7 @@ public class LPDDecoder extends ByteToMessageDecoder {
     private static final byte EOL = (byte) '\n';
     private static final byte EOF = (byte) 0x00;
 
+    private LPDCommand command;
     private String queue;
 
     // ReceiveJob variables
@@ -81,42 +82,9 @@ public class LPDDecoder extends ByteToMessageDecoder {
             break;
 
         case DECODE_RECEIVE_JOB_RECEIVE_DATA_FILE:
-            if (receiveJobDataFileLength > 0) {
-                int toRead = in.readableBytes();
-                if (toRead == 0) {
-                    return;
-                }
-
-                if (toRead > chunkSize) {
-                    toRead = chunkSize;
-                }
-
-                int remainingLength = (int) (receiveJobDataFileLength - alreadyReadLength);
-                if (toRead == remainingLength) {
-                    // if we have reached the end of the data file let's wait for the EOF before
-                    // emitting the last content message
-                    return;
-                } else {
-                    LPDReceiveJobDataFileContent dataFileChunk;
-                    if (toRead == remainingLength + 1) {
-                        dataFileChunk = new DefaultLPDReceiveJobDataFileLastContent(in.readRetainedSlice(toRead - 1));
-                        readEndOfFile(in);
-                        state = State.DECODE_RECEIVE_JOB_SUBCOMMAND;
-                    } else if (toRead < remainingLength) {
-                        dataFileChunk = new DefaultLPDReceiveJobDataFileContent(in.readRetainedSlice(toRead));
-                    } else {
-                        throw new LPDException("Read past receive job data file!");
-                    }
-                    alreadyReadLength += toRead;
-                    out.add(dataFileChunk);
-                }
-            } else {
-                throw new LPDException("No receive job data file content length!");
+            if (!decodeReceiveJobDataFile(in, out)) {
+                return;
             }
-
-            // if (!decodeReceiveJobDataFile(in, out)) {
-            // return;
-            // }
             break;
 
         default:
@@ -138,32 +106,40 @@ public class LPDDecoder extends ByteToMessageDecoder {
         }
 
         final int commandCode = lineBytes.readByte();
-        queue = lineBytes.readSlice(lineBytes.readableBytes()).toString(CharsetUtil.US_ASCII);
+        final String commandOperands = lineBytes.readSlice(lineBytes.readableBytes()).toString(CharsetUtil.US_ASCII);
 
         switch (commandCode) {
 
-        case LPDCommand.COMMAND_CODE_PRINT_JOBS:
-            logger.debug("Print jobs for queue: {}", queue);
+        case LPDConstants.COMMAND_CODE_PRINT_JOBS:
+            logger.debug("Print jobs for queue: {}", commandOperands);
+            command = new DefaultLPDPrintWaitingJobsCommand(commandOperands);
             break;
-        case LPDCommand.COMMAND_CODE_RECEIVE_JOB:
+
+        case LPDConstants.COMMAND_CODE_RECEIVE_JOB:
+            logger.debug("Receive print job for queue: {}", commandOperands);
+            command = new DefaultLPDReceiveJobCommand(commandOperands);
             state = State.DECODE_RECEIVE_JOB_SUBCOMMAND;
-            logger.debug("Receive print job for queue: {}", queue);
             break;
-        case LPDCommand.COMMAND_CODE_REPORT_QUEUE_STATE_SHORT:
-            logger.debug("Report queue state short for queue: {}", queue);
+
+        case LPDConstants.COMMAND_CODE_REPORT_QUEUE_STATE_SHORT:
+            logger.debug("Report queue state short for queue: {}", commandOperands);
+            command = DefaultLPDSendQueueStateShortSubCommand.fromCommandOperands(commandOperands);
             break;
-        case LPDCommand.COMMAND_CODE_REPORT_QUEUE_STATE_LONG:
-            logger.debug("Report queue state short for queue: {}", queue);
+
+        case LPDConstants.COMMAND_CODE_REPORT_QUEUE_STATE_LONG:
+            logger.debug("Report queue state short for queue: {}", commandOperands);
+            command = DefaultLPDSendQueueStateLongSubCommand.fromCommandOperands(commandOperands);
             break;
-        case LPDCommand.COMMAND_CODE_REMOVE_PRINT_JOBS:
-            logger.debug("Remove jobs from queue: {}", queue);
+
+        case LPDConstants.COMMAND_CODE_REMOVE_PRINT_JOBS:
+            logger.debug("Remove jobs from queue: {}", commandOperands);
             break;
+
         default:
             throw new Exception("Unknown command code: " + commandCode);
         }
 
-        out.add(new LPDCommand(queue));
-
+        out.add(command);
         return true;
     }
 
@@ -179,24 +155,13 @@ public class LPDDecoder extends ByteToMessageDecoder {
         switch (subCommandCode) {
 
         case RECEIVE_JOB_SUB_COMMAND_CODE_RECEIVE_CONTROL_FILE:
-            final String controlFileOperands = lineBytes.readSlice(lineBytes.readableBytes())
-                    .toString(CharsetUtil.US_ASCII);
-            DefaultLPDReceiveJobControlFileSubCommand controlFile = DefaultLPDReceiveJobControlFileSubCommand
-                    .fromSubCommandOperands(queue, controlFileOperands);
-            out.add(controlFile);
-            receiveJobControlFileLength = controlFile.getSize();
-            logger.debug("Received control file: {} size: {}", controlFile.getName(), controlFile.getSize());
-            state = State.DECODE_RECEIVE_JOB_RECEIVE_CONTROL_FILE;
+            decodeReceiveJobControlFileSubCommand(
+                    lineBytes.readSlice(lineBytes.readableBytes()).toString(CharsetUtil.US_ASCII), out);
             break;
 
         case RECEIVE_JOB_SUB_COMMAND_CODE_RECEIVE_DATA_FILE:
-            final String dataFileOperands = lineBytes.readSlice(lineBytes.readableBytes())
-                    .toString(CharsetUtil.US_ASCII);
-            DefaultLPDReceiveJobDataFileSubCommand dataFile = DefaultLPDReceiveJobDataFileSubCommand
-                    .fromSubCommandOperands(queue, dataFileOperands);
-            out.add(dataFile);
-            receiveJobDataFileLength = dataFile.getSize();
-            state = State.DECODE_RECEIVE_JOB_RECEIVE_DATA_FILE;
+            decodeReceiveJobDataFileSubCommand(
+                    lineBytes.readSlice(lineBytes.readableBytes()).toString(CharsetUtil.US_ASCII), out);
             break;
 
         case RECEIVE_JOB_SUB_COMMAND_CODE_ABORT_JOB:
@@ -210,8 +175,25 @@ public class LPDDecoder extends ByteToMessageDecoder {
         return true;
     }
 
-    private boolean decodeReceiveJobControlFile(ByteBuf in, List<Object> out) throws Exception {
+    private void decodeReceiveJobControlFileSubCommand(String controlFileOperands, List<Object> out)
+            throws LPDException {
+        DefaultLPDReceiveJobControlFileSubCommand controlFile = DefaultLPDReceiveJobControlFileSubCommand
+                .fromSubCommandOperands(queue, controlFileOperands);
+        logger.debug("Received control file: {} size: {}", controlFile.getName(), controlFile.getSize());
+        out.add(controlFile);
+        receiveJobControlFileLength = controlFile.getSize();
+        state = State.DECODE_RECEIVE_JOB_RECEIVE_CONTROL_FILE;
+    }
 
+    private void decodeReceiveJobDataFileSubCommand(String dataFileOperands, List<Object> out) throws LPDException {
+        DefaultLPDReceiveJobDataFileSubCommand dataFile = DefaultLPDReceiveJobDataFileSubCommand
+                .fromSubCommandOperands(queue, dataFileOperands);
+        out.add(dataFile);
+        receiveJobDataFileLength = dataFile.getSize();
+        state = State.DECODE_RECEIVE_JOB_RECEIVE_DATA_FILE;
+    }
+
+    private boolean decodeReceiveJobControlFile(ByteBuf in, List<Object> out) throws Exception {
         if (!in.isReadable(receiveJobControlFileLength + 1)) {
             return false;
         }
@@ -225,15 +207,38 @@ public class LPDDecoder extends ByteToMessageDecoder {
     }
 
     private boolean decodeReceiveJobDataFile(ByteBuf in, List<Object> out) throws Exception {
-        if (!in.isReadable(receiveJobDataFileLength + 1)) {
-            return false;
-        }
+        if (receiveJobDataFileLength > 0) {
+            int toRead = in.readableBytes();
+            if (toRead == 0) {
+                return false;
+            }
 
-        String dataFileContent = in.readSlice(receiveJobDataFileLength).toString(CharsetUtil.US_ASCII);
-        readEndOfFile(in);
-        System.out.println("Data file content: " + dataFileContent);
-        state = State.DECODE_RECEIVE_JOB_SUBCOMMAND;
-        out.add(dataFileContent);
+            if (toRead > chunkSize) {
+                toRead = chunkSize;
+            }
+
+            int remainingLength = (int) (receiveJobDataFileLength - alreadyReadLength);
+            if (toRead == remainingLength) {
+                // if we have reached the end of the data file let's wait for the EOF before
+                // emitting the last content message
+                return false;
+            } else {
+                LPDReceiveJobDataFileContent dataFileChunk;
+                if (toRead == remainingLength + 1) {
+                    dataFileChunk = new DefaultLPDReceiveJobDataFileLastContent(in.readRetainedSlice(toRead - 1));
+                    readEndOfFile(in);
+                    state = State.DECODE_RECEIVE_JOB_SUBCOMMAND;
+                } else if (toRead < remainingLength) {
+                    dataFileChunk = new DefaultLPDReceiveJobDataFileContent(in.readRetainedSlice(toRead));
+                } else {
+                    throw new LPDException("Read past receive job data file!");
+                }
+                alreadyReadLength += toRead;
+                out.add(dataFileChunk);
+            }
+        } else {
+            throw new LPDException("No receive job data file content length!");
+        }
         return true;
     }
 
